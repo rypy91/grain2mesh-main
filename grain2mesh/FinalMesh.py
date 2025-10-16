@@ -130,7 +130,7 @@ class FinalMesh:
 
         # Group bounding surfaces
         for plate, surfID in zip(plate_names, self.boundary_ids):
-            cubit.cmd(f"group '{plate}' ad tri in surface {surfID}")
+            cubit.cmd(f"group '{plate}' add tri in surface {self.boundary_ids[surfID]}")
 
         # Assign and name blocks for each phase
         for i, phase in enumerate(self.phase_names, start=1):

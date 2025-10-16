@@ -38,6 +38,111 @@ class GrainLabeling:
         # Update labels with negative values for pore spaces
         self.labels[zero_regions] = negative_labels[zero_regions]
 
+    def fix_diagonal_pores(self):
+        """
+        Resolve diagonal pore-to-pore 'corner' connections by reassigning those pore
+        pixels to adjacent grain labels.
+
+        A corner case is when (x,y) and (x+dx,y+dy) are pores (<= 0), while the two
+        orthogonal neighbors along that corner (x+dx,y) and (x,y+dy) are grains (> 0).
+        This method finds all such cases for (dx,dy) in {(1,1),(1,-1),(-1,1),(-1,-1)}
+        and reassigns BOTH pore pixels to a nearby grain label.
+        """
+        lbl = self.labels
+        n, m = lbl.shape
+
+        # Treat <= 0 as pore
+        is_pore = lbl <= 0
+
+        # Precompute global areas for positive labels (for tie-breaking)
+        flat = lbl.ravel()
+        pos = flat > 0
+        if pos.any():
+            max_lab = int(flat.max())
+            counts = np.bincount(flat[pos])
+            # np.bincount starts at label 1; align indices 1..max_lab
+            # For labels that don't appear, area = 0.
+            def label_area(L):
+                if L <= 0 or L > counts.size:
+                    return 0
+                return counts[L - 1]
+        else:
+            # no grains? nothing to do
+            return
+
+        # Collect updates without mutating during scan
+        to_update_coords = []
+        to_update_labels = []
+
+        # Four diagonal directions and their paired orthogonals
+        corners = [
+            ( 1,  1),  # checks (x+1,y) and (x,y+1)
+            ( 1, -1),  # checks (x+1,y) and (x,y-1)
+            (-1,  1),  # checks (x-1,y) and (x,y+1)
+            (-1, -1),  # checks (x-1,y) and (x,y-1)
+        ]
+
+        for dx, dy in corners:
+            # Valid interior range so (x+dx,y+dy), (x+dx,y), (x,y+dy) are in bounds
+            x0 = max(0, -dx)
+            x1 = min(n, n - dx)
+            y0 = max(0, -dy)
+            y1 = min(m, m - dy)
+
+            # Slices
+            P00 = is_pore[x0:x1, y0:y1]                   # (x,y)
+            P11 = is_pore[x0+dx:x1+dx, y0+dy:y1+dy]       # (x+dx,y+dy) diag
+            G10 = lbl[x0+dx:x1+dx, y0:y1]                 # (x+dx,y)
+            G01 = lbl[x0:x1, y0+dy:y1+dy]                 # (x,y+dy)
+
+            # Corner condition: both pores on the diagonal pair, and both orthogonals are grains (>0)
+            mask_corner = P00 & P11 & (G10 > 0) & (G01 > 0)
+            if not np.any(mask_corner):
+                continue
+
+            # Coordinates within the sliced window where the condition holds
+            xs, ys = np.nonzero(mask_corner)
+
+            for k in range(xs.size):
+                x = xs[k] + x0
+                y = ys[k] + y0
+
+                # Determine the two orthogonal grain labels for this corner
+                lab1 = lbl[x + dx, y]       # (x+dx,y)
+                lab2 = lbl[x, y + dy]       # (x, y+dy)
+
+                # Pick winner: majority (if equal, use area tie-break; else first)
+                if lab1 == lab2:
+                    winner = lab1
+                else:
+                    # equal vote -> use global area
+                    a1 = label_area(int(lab1))
+                    a2 = label_area(int(lab2))
+                    if a1 > a2:
+                        winner = lab1
+                    elif a2 > a1:
+                        winner = lab2
+                    else:
+                        winner = lab1  # deterministic fallback
+
+                # Reassign BOTH pore pixels of the diagonal pair to the winner
+                p1 = (x, y)
+                p2 = (x + dx, y + dy)
+
+                # Only queue updates if still pore at those locations (avoid duplicates)
+                if lbl[p1] <= 0:
+                    to_update_coords.append(p1)
+                    to_update_labels.append(winner)
+                if lbl[p2] <= 0:
+                    to_update_coords.append(p2)
+                    to_update_labels.append(winner)
+
+        if to_update_coords:
+            xs, ys = zip(*to_update_coords)
+            xs = np.array(xs)
+            ys = np.array(ys)
+            self.labels[xs, ys] = np.array(to_update_labels, dtype=lbl.dtype)
+
     def assign_grain_sizes(self):
         """ Measure area of each discrete region """
         properties = measure.regionprops(self.labels)
@@ -100,8 +205,10 @@ class GrainLabeling:
         Args:
         - threshold (float): minimum area for a region
         """
+        n=np.size(self.labels,0)
+        m=np.size(self.labels,1)
         self.remap_labels(False)
-
+        
         properties = measure.regionprops(self.labels)
         # adjacencies = self._find_adjacent_regions()
         for region in properties:
@@ -119,9 +226,46 @@ class GrainLabeling:
                 #Initialize variable to store the new label
                 new_label = None
 
-                #special case (single pixel..)
+                #special case (single pixel..) #special case contributed by Eban Bozek beta tester
                 if region.area == 1.0:
-                    self.labels[self.labels == region.label] = adj_regions[0]
+                    coords=np.where(self.labels == region.label)
+                    x=coords[0][0]
+                    y=coords[1][0]
+                    COORDS=np.array([x+1,x-1,y-1,y+1])
+                    
+                    # Make sure coords stay within image bounds
+                    COORDS[COORDS<0]=0
+                    if (x+1)>=n:
+                        COORDS[0]=n-1
+                    if (y+1)>=m:
+                        COORDS[3]=m-1
+                    # list of adjacent segment labels: [up,down,right,left]
+                    TEMP=[self.labels[x,COORDS[3]] ,self.labels[x,COORDS[2]],self.labels[COORDS[0],y],self.labels[COORDS[1],y] ]
+                    if TEMP.count(int(0))>0:
+                        TEMP=list(filter(lambda a: a!=0,TEMP))
+
+                    else:
+                        
+                        # find the unique adjacent segment labels, and the respective counts
+                        [LABELS,COUNTS]=np.unique(TEMP,return_counts=True) 
+                        
+                        if len(LABELS)>1: # if there is more than one nearby grain
+                            [LABELS2,COUNTS2]=np.unique(COUNTS,return_counts=True) # find if number of counts is repeated
+                            
+                            if len(LABELS2)==1: #if all counts are equal (one of two/three segments, or two of two segments)
+                                
+                                label=LABELS[0]
+                                
+                            else:# one label was found more than the others
+                                M=np.argmax(COUNTS)
+                                label=LABELS[M]
+                               
+                        else: #only one nearby grain segment 
+                            label=LABELS[0]
+                    #assign found label to this pixel, or zero if skipped
+                    self.labels[x,y]=label
+                    
+                    #self.labels[self.labels == region.label] = adj_regions[0]
 
                 
                 # Iterate over each adjacent region to find if the centroid is within its bounding box
@@ -155,6 +299,9 @@ class GrainLabeling:
                             if min_distance < distance_map[tuple(pixel)]:
                                 distance_map[tuple(pixel)] = min_distance
                                 self.labels[tuple(pixel)] = adj_label
+
+#NOTE there is known bug with having pore space be so big that it wraps back around and creates an of diagonal []^[] connection.. see commented out
+#see line 116 in cubitSurface for debugging purposes..
 
     def _is_point_within_bbox(self, point, bbox):
         """

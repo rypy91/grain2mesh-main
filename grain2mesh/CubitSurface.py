@@ -14,7 +14,7 @@ import cubit
 from skimage.measure import label
 from collections import defaultdict 
 from .utils import init_cubit
-
+from .utils import save_cubit
 
 class CubitSurface:
     def __init__(self):
@@ -113,6 +113,9 @@ class CubitSurface:
                 c = self._create_curve(curve)
                 curves.append(c)
 
+            #need to debug for wrap around pore space..FIXED 10/14/25 - RGH
+            #save_cubit("./example/results_composite/", 'baseCub')
+
             cubit.create_surface(curves)
 
 
@@ -149,11 +152,22 @@ class CubitSurface:
         - NONE - updates border list
         """
         if 0 <= index < (self.width * self.height): # border between two regions
+            
+            
             if self.phase_numbers[index] != phase:
                 borders.append(self.regions[pixel][side])
+            
+            else:
+                rem=np.mod(pixel,self.width)
+                
+                if (rem==0)|(rem==(self.width-1)):
+                    
+                    if(rem==0)& (side==1): #left border when grain spans width of image
+                        borders.append(self.regions[pixel][side])
+                    elif (rem==(self.width-1))& (side==3): # right border when grain spans width of image
+                      borders.append(self.regions[pixel][side])
         else:
             borders.append(self.regions[pixel][side]) # boundary edge
-
 
     def _combine_colinear_edges(self, borders, col):
         """

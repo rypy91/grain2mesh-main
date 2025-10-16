@@ -1,6 +1,6 @@
 {
-    "export_path": "./example/results/",
-    "image_basename": "./example/data/RGB_example.png",
+    "export_path": "./example/results_metal/",
+    "image_basename": "./example/data/metal_example.png",
     "gaussian_sigma": 7,
     "area_threshold": 500,
     "min_spline_length": 4.0,

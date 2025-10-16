@@ -19,6 +19,7 @@ import cubit
 import os
 import json
 import time
+import copy
 
 
 class Grain2Mesh:
@@ -86,19 +87,24 @@ class Grain2Mesh:
 
                 # Watershed Segmentation
                 segmented_image = ip.watershed(filtered_image, self.watershed_sigma, self.peak_min_distance, self.watershed_peak_threshold)
+                segmented_image2=ip.watershed_filtering(image,filtered_image,self)
 
                 # Show images
-                plt.subplot(1,3,1)
+                plt.subplot(2,2,1)
                 plt.imshow(image, cmap='gray')
                 plt.title("Original")
 
-                plt.subplot(1,3,2)
+                plt.subplot(2,2,2)
                 plt.imshow(filtered_image)
                 plt.title("Gaussian Filter")
 
-                plt.subplot(1,3,3)
+                plt.subplot(2,2,3)
                 plt.imshow(segmented_image)
                 plt.title("Watershed Segmentation")
+                
+                plt.subplot(2,2,4)
+                plt.imshow(segmented_image2)
+                plt.title("Segmentation -> filtering")
 
                 plt.tight_layout()
                 plt.show()
@@ -107,6 +113,11 @@ class Grain2Mesh:
                 satisfied = input("Are you satisfied with the segmentation? (y to save / n to adjust / q to quit): ").strip().lower()
 
                 if satisfied == 'y':
+                    which = int(input("Watershed segmentation or segmentation -> filtering? (0 for watershed segmentation / 1 for segmentation -> filtering): "))
+                    if which == 1:
+                        segmented_image=segmented_image2
+                    elif which !=1:
+                        print("Invalid input. Defaulting to Watershed Segmentation")
                     # Save A2
                     plt.figure(figsize=(8,8))
                     plt.imshow(filtered_image)
@@ -117,7 +128,16 @@ class Grain2Mesh:
                     plt.imshow(segmented_image)
                     plt.savefig(f'{self.export_path}/A3_{image_name}_watershed_segmentation.png')
                     plt.close()
+                    
+                    print("Checking for completely porous border")
+                    check_border = int(input("Replace fully porous border? 0 for no/ 1 for yes): "))
+                    if check_border:
+                        segmented_image=ip.check_border(segmented_image)
+                    elif check_border!=0:
+                        print("Invalid input. Defaulting to no")
+                    
                     print("Saved final Gaussian filter and watershed segmentation. Moving to clean up.")
+                
                     break
 
                 elif satisfied == 'q':
@@ -218,6 +238,7 @@ class Grain2Mesh:
 
         # Label zero spaces
         gl.label_zero_spaces()
+        gl.fix_diagonal_pores()
         if self.verbose:
             plt.imshow(gl.labels)
             plt.title("Labeled Pore Space")
@@ -234,7 +255,7 @@ class Grain2Mesh:
         plt.show()
 
         # Remove floaters
-        gl.remove_floaters()
+        #gl.remove_floaters()
         gl.assign_grain_sizes()
         plt.figure(figsize=(10,10))
         plt.imshow(gl.grain_sizes, cmap=custom_cmap, interpolation='nearest')
