@@ -159,6 +159,9 @@ grain2mesh/
 
 ## Publications
 
+[https://www.sciencedirect.com/science/article/pii/S2352711025003930
+](https://doi.org/10.1016/j.softx.2025.102427)
+
 ## License
 © 2025. Triad National Security, LLC. All rights reserved.
 
